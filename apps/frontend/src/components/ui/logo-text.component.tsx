@@ -3,9 +3,9 @@ import React from 'react';
 export const LogoTextComponent = () => {
   return (
     <svg
-      width="140"
+      width="176"
       height="33"
-      viewBox="0 0 140 33"
+      viewBox="0 0 176 33"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -23,10 +23,10 @@ export const LogoTextComponent = () => {
       </text>
       <text
         x="36"
-        y="23"
+        y="22.5"
         fontFamily="Arial, Helvetica, sans-serif"
         fontWeight="700"
-        fontSize="20"
+        fontSize="16"
         fill="currentColor"
       >
         MediaPublish

@@ -3,9 +3,9 @@ import React from 'react';
 export const LogoTextComponent = () => {
   return (
     <svg
-      width="176"
+      width="210"
       height="33"
-      viewBox="0 0 176 33"
+      viewBox="0 0 210 33"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >

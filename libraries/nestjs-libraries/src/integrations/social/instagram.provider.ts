@@ -485,59 +485,14 @@ export class InstagramProvider
   }
 
   async pages(token: string) {
-    const [accessToken] = token.split('___');
-
-    console.log(
-      '[instagram.pages] token prefix',
-      accessToken?.slice(0, 12)
-    );
-
+    const [accessToken, userToken] = token.split('___');
     const seenPageIds = new Set<string>();
     const allFacebookPages: any[] = [];
 
-    const sanitizePaging = (paging: any) => {
-      if (!paging) {
-        return paging;
-      }
-
-      const sanitizeUrl = (url?: string) => {
-        if (!url) {
-          return url;
-        }
-
-        try {
-          const parsedUrl = new URL(url);
-          if (parsedUrl.searchParams.has('access_token')) {
-            parsedUrl.searchParams.set('access_token', '[REDACTED]');
-          }
-          return parsedUrl.toString();
-        } catch {
-          return url.replace(
-            /([?&]access_token=)[^&]*/,
-            '$1[REDACTED]'
-          );
-        }
-      };
-
-      return {
-        ...paging,
-        next: sanitizeUrl(paging.next),
-        previous: sanitizeUrl(paging.previous),
-      };
-    };
-
-    const fetchPaginated = async (startUrl: string, label: string) => {
+    const fetchPaginated = async (startUrl: string) => {
       let nextUrl: string | undefined = startUrl;
-
       while (nextUrl) {
         const response = await (await fetch(nextUrl)).json();
-
-        console.log(`[instagram.pages] ${label} response`, {
-          data: response.data,
-          error: response.error,
-          paging: sanitizePaging(response.paging),
-        });
-
         if (response.data) {
           for (const page of response.data) {
             if (!seenPageIds.has(page.id)) {
@@ -546,16 +501,17 @@ export class InstagramProvider
             }
           }
         }
-
         nextUrl = response.paging?.next;
       }
     };
 
+    // Fetch pages the user explicitly shared during the OAuth dialog
     await fetchPaginated(
-      `https://graph.facebook.com/v20.0/me/accounts?fields=id,instagram_business_account,username,name,picture.type(large)&limit=100&access_token=${accessToken}`,
-      'me/accounts'
+      `https://graph.facebook.com/v20.0/me/accounts?fields=id,instagram_business_account,username,name,picture.type(large)&limit=100&access_token=${accessToken}`
     );
 
+    // Also fetch pages via Business Manager API to discover pages
+    // not selected during the OAuth page selection step
     try {
       let bizUrl:
         | string
@@ -563,18 +519,11 @@ export class InstagramProvider
 
       while (bizUrl) {
         const bizResponse = await (await fetch(bizUrl)).json();
-
-        console.log('[instagram.pages] me/businesses response', {
-          data: bizResponse.data,
-          error: bizResponse.error,
-        });
-
         if (bizResponse.data) {
           for (const business of bizResponse.data) {
             try {
               await fetchPaginated(
-                `https://graph.facebook.com/v20.0/${business.id}/owned_pages?fields=id,instagram_business_account,username,name,picture.type(large)&limit=100&access_token=${accessToken}`,
-                `business ${business.id} owned_pages`
+                `https://graph.facebook.com/v20.0/${business.id}/owned_pages?fields=id,instagram_business_account,username,name,picture.type(large)&limit=100&access_token=${accessToken}`
               );
             } catch {
               // Continue with other businesses
@@ -582,64 +531,40 @@ export class InstagramProvider
 
             try {
               await fetchPaginated(
-                `https://graph.facebook.com/v20.0/${business.id}/client_pages?fields=id,instagram_business_account,username,name,picture.type(large)&limit=100&access_token=${accessToken}`,
-                `business ${business.id} client_pages`
+                `https://graph.facebook.com/v20.0/${business.id}/client_pages?fields=id,instagram_business_account,username,name,picture.type(large)&limit=100&access_token=${accessToken}`
               );
             } catch {
               // Continue with other businesses
             }
           }
         }
-
         bizUrl = bizResponse.paging?.next;
       }
-    } catch (error) {
-      console.error('[instagram.pages] business fetch failed', error);
+    } catch {
+      // Business Manager API not available for all users
     }
-
-    console.log('[instagram.pages] allFacebookPages', allFacebookPages);
 
     const onlyConnectedAccounts = await Promise.all(
       allFacebookPages
-        .filter((page: any) => page.instagram_business_account)
-        .map(async (page: any) => {
-          const instagramId = page.instagram_business_account.id;
-
-          const instagramResponse = await (
-            await fetch(
-              `https://graph.facebook.com/v20.0/${instagramId}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
-            )
-          ).json();
-
-          console.log('[instagram.pages] instagram account response', {
-            pageId: page.id,
-            pageName: page.name,
-            instagramId,
-            response: instagramResponse,
-          });
-
+        .filter((f: any) => f.instagram_business_account)
+        .map(async (p: any) => {
           return {
-            pageId: page.id,
-            ...instagramResponse,
-            id: instagramId,
+            pageId: p.id,
+            ...(await (
+              await fetch(
+                `https://graph.facebook.com/v20.0/${p.instagram_business_account.id}?fields=name,profile_picture_url&access_token=${accessToken}`
+              )
+            ).json()),
+            id: p.instagram_business_account.id,
           };
         })
     );
 
-    console.log(
-      '[instagram.pages] final accounts',
-      onlyConnectedAccounts
-    );
-
-    return onlyConnectedAccounts.map((page: any) => ({
-      pageId: page.pageId,
-      id: page.id,
-      name: page.name,
-      picture: {
-        data: {
-          url: page.profile_picture_url,
-        },
-      },
+    return onlyConnectedAccounts.map((p: any) => ({
+      pageId: p.pageId,
+      id: p.id,
+      name: p.name,
+      picture: { data: { url: p.profile_picture_url } },
     }));
   }
 

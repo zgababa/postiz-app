@@ -12,6 +12,8 @@ import { GithubProvider } from '@gitroom/frontend/components/auth/providers/gith
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import clsx from 'clsx';
+import { GoogleProvider } from '@gitroom/frontend/components/auth/providers/google.provider';
+import { AppleProvider } from '@gitroom/frontend/components/auth/providers/apple.provider';
 import { OauthProvider } from '@gitroom/frontend/components/auth/providers/oauth.provider';
 import { useFireEvents } from '@gitroom/helpers/utils/use.fire.events';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
@@ -42,6 +44,7 @@ export function Register() {
   const fetch = useFetch();
   const [provider] = useState(getQuery?.get('provider')?.toUpperCase());
   const [code, setCode] = useState(getQuery?.get('code') || '');
+  const [state] = useState(getQuery?.get('state') || '');
   const [show, setShow] = useState(false);
   useEffect(() => {
     if (provider && code) {
@@ -54,6 +57,7 @@ export function Register() {
         method: 'POST',
         body: JSON.stringify({
           code,
+          state,
         }),
       })
     ).json();
@@ -89,8 +93,13 @@ export function RegisterAfter({
   provider: string;
 }) {
   const t = useT();
-  const { isGeneral, genericOauth, neynarClientId, billingEnabled } =
-    useVariables();
+  const {
+    isGeneral,
+    genericOauth,
+    neynarClientId,
+    appleClientId,
+    billingEnabled,
+  } = useVariables();
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const fireEvents = useFireEvents();
@@ -157,17 +166,32 @@ export function RegisterAfter({
           <div className="text-[14px] mt-[32px] mb-[12px]">
             {t('continue_with', 'Continue With')}
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col text-[14px]">
             {!isAfterProvider &&
               (!isGeneral ? (
                 <GithubProvider />
               ) : (
                 <div className="gap-[8px] flex">
-                  {genericOauth && isGeneral && <OauthProvider />}
+                  {genericOauth && isGeneral ? (
+                    <OauthProvider />
+                  ) : (
+                    <GoogleProvider />
+                  )}
+                  {!!appleClientId && <AppleProvider />}
                   {!!neynarClientId && <FarcasterProvider />}
                   {billingEnabled && <WalletProvider />}
                 </div>
               ))}
+            {!isAfterProvider && (
+              <div className="h-[20px] mb-[24px] mt-[24px] relative">
+                <div className="absolute w-full h-[1px] bg-fifth top-[50%] -translate-y-[50%]" />
+                <div
+                  className={`absolute z-[1] justify-center items-center w-full start-0 -top-[4px] flex`}
+                >
+                  <div className="px-[16px]">{t('or', 'or')}</div>
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-[12px]">
               <div className="text-textColor">
                 {!isAfterProvider && (

@@ -1,9 +1,15 @@
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Integration } from '@prisma/client';
-import { PendingCheckResponse } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import {
+  AuthTokenDetails,
+  PendingCheckResponse,
+} from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { ApplicationFailure } from '@temporalio/activity';
 import { readOrFetch } from '@gitroom/helpers/utils/read.or.fetch';
-import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import {
+  getSsrfSafeAxios,
+  getSsrfSafeDispatcher,
+} from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import sharp from 'sharp';
 import { createReadStream, statSync } from 'fs';
 import { Readable } from 'stream';
@@ -39,6 +45,27 @@ export class RefreshToken extends ApplicationFailure {
     super(
       truncateForTemporal(message, MAX_FAILURE_MESSAGE),
       'refresh_token',
+      true,
+      [
+        {
+          identifier,
+          json: truncateForTemporal(json, MAX_FAILURE_FIELD),
+          body: truncateForTemporal(body, MAX_FAILURE_FIELD),
+        },
+      ]
+    );
+  }
+}
+
+// A `disconnect` error means the platform will keep rejecting this channel no
+// matter how many times the token is refreshed (e.g. TikTok's daily active
+// user cap): the channel must be disconnected so the user re-connects it,
+// possibly through another provider (see MIGRATE_PROVIDERS).
+export class Disconnect extends ApplicationFailure {
+  constructor(identifier: string, json: string, body: BodyInit, message = '') {
+    super(
+      truncateForTemporal(message, MAX_FAILURE_MESSAGE),
+      'disconnect',
       true,
       [
         {
@@ -91,9 +118,25 @@ export abstract class SocialAbstract {
     body: string,
     status: number
   ):
-    | { type: 'refresh-token' | 'bad-body' | 'retry'; value: string }
+    | {
+        type: 'refresh-token' | 'bad-body' | 'retry' | 'disconnect';
+        value: string;
+      }
     | undefined {
     return undefined;
+  }
+
+  /**
+   * When a provider is migrated to another one (MIGRATE_PROVIDERS env), the two
+   * apps return different app-scoped ids, so a reconnect is matched to the
+   * existing channel by profile instead. Override when a provider pair needs a
+   * different matching rule.
+   */
+  public migrationMatch(
+    auth: Pick<AuthTokenDetails, 'id' | 'username'>,
+    integration: Integration
+  ): boolean {
+    return !!auth.username && auth.username === integration.profile;
   }
 
   /**
@@ -150,6 +193,13 @@ export abstract class SocialAbstract {
       '{}',
       'finalizePost is not implemented for this provider'
     );
+  }
+
+  // axios flavor of the SSRF-safe dispatcher that `this.fetch` applies - for
+  // providers that need axios (form-data / stream uploads). Never call plain
+  // axios with a user-influenced URL.
+  protected getSsrfSafeAxios() {
+    return getSsrfSafeAxios();
   }
 
   protected assetBoolean(value: boolean | string) {
@@ -314,6 +364,10 @@ export abstract class SocialAbstract {
         return this.runStreamedUpload(func, identifier, totalRetries + 1);
       }
 
+      if (handleError?.type === 'disconnect') {
+        throw new Disconnect(identifier, json, '{}', handleError?.value);
+      }
+
       if (
         (status === 401 &&
           (handleError?.type === 'refresh-token' || !handleError)) ||
@@ -362,6 +416,14 @@ export abstract class SocialAbstract {
         throw new RefreshToken(
           '',
           safeStringify({}),
+          {} as any,
+          value.value || ''
+        );
+      }
+      if (value.type === 'disconnect') {
+        throw new Disconnect(
+          '',
+          safeStringify(globalErr),
           {} as any,
           value.value || ''
         );
@@ -436,6 +498,15 @@ export abstract class SocialAbstract {
         totalRetries + 1,
         ignoreConcurrency,
         handleError?.value || 'Unknown Error'
+      );
+    }
+
+    if (handleError?.type === 'disconnect') {
+      throw new Disconnect(
+        identifier,
+        json,
+        options.body!,
+        handleError?.value
       );
     }
 

@@ -1,3 +1,6 @@
 packages:
   - apps/*
   - libraries/*
+
+patchedDependencies:
+  nestjs-temporal-core@3.2.3: patches/nestjs-temporal-core@3.2.3.patch

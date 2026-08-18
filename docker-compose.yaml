@@ -120,10 +120,15 @@ services:
       - postiz-network
       - temporal-network
     depends_on:
+      temporal:
+        condition: service_healthy
+        restart: true
       postiz-postgres:
         condition: service_healthy
+        restart: true
       postiz-redis:
         condition: service_healthy
+        restart: true
 
   postiz-postgres:
     image: postgres:17-alpine
@@ -225,6 +230,17 @@ services:
       - ./dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          temporal operator cluster health --address temporal:7233 >/dev/null 2>&1
+          && sleep 10
+          && temporal operator cluster health --address temporal:7233 >/dev/null 2>&1
+      interval: 10s
+      timeout: 20s
+      retries: 10
+      start_period: 30s
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
